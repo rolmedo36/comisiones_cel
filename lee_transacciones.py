@@ -355,8 +355,9 @@ if __name__ == '__main__':
             BUILTIN.DF( custbody_crt_tipodeventa_ ) as tipo_venta,
             
             BUILTIN.DF(i.custitem_ctr_marca) as marca,
+            BUILTIN.DF(i.custitem23) as familia_comercial,
 
-            tl.quantity as cantidad,
+            ABS(tl.quantity) as cantidad,
             -- tl.netAmount as importe_neto, -- este importe ya esta menos el costo
             ( SELECT TOP 1 NVL(price,'0') FROM itemPrice ip WHERE ip.item = tl.item AND ip.priceLevelName = 'PRECIO PUBLICO') as precio_publico,
             tl.custcol_ctr_promo_discount as promo_descuento,
