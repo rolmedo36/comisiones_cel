@@ -141,9 +141,9 @@ def calcular_comisiones_por_vendedor(
 
         # === ESQUEMA 2: Comisiones adicionales por vendedor ===
         juguetes = grupo[
-            (grupo['familia_comercial'] == 'juguete') &
+            (grupo['familia_comercial'] == 'JUGUETE') &
             (~grupo['marca'].astype(str).str.startswith('CXO', na=False)) &
-            (grupo['precio_publico'] > 1500)
+            (grupo['precio_publico'] * grupo['cantidad'] > 1500)
         ]
         comision_juguetes = juguetes['venta_total'].sum() * 0.01
 
@@ -152,11 +152,11 @@ def calcular_comisiones_por_vendedor(
 
         dusa = grupo[
             (grupo['marca'] == 'DUSA') &
-            (grupo['id_articulo'] != 5356)
+            (grupo['id_articulo'] != '5356')
         ]
         comision_dusa = dusa['venta_total'].sum() * 0.02
 
-        shumatsu = grupo[grupo['id_articulo'] == 5356]
+        shumatsu = grupo[grupo['id_articulo'] == '5356']
         comision_shumatsu = shumatsu['venta_total'].sum() * 0.06
 
         # === COMISIÓN SEMANAL: 1% sobre cada semana (por vendedor) ===
