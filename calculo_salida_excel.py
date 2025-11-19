@@ -69,6 +69,19 @@ def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
 
 def cargar_presupuestos_por_vendedor(db_path: str, year: int, month: int) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS presupuestos_ubicaciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ubicacion_tienda TEXT NOT NULL,
+    mes INTEGER NOT NULL,
+    anio INTEGER NOT NULL,
+    presupuesto REAL NOT NULL,
+    UNIQUE(ubicacion_tienda, mes, anio)
+    );
+    """)
+
+    conn = sqlite3.connect(db_path)
     query = """
     SELECT vendedor, presupuesto
     FROM presupuestos_vendedores
