@@ -338,7 +338,7 @@ def agrupa_marca():
 
 if __name__ == '__main__':
     # mes_ini = datetime.today().replace(day=1).strftime("%d/%m/%Y")
-    mes_ini = '01/10/2025'
+    mes_ini = '01/12/2025'
     archivo = 'comisiones.csv'
     results = []
     conn = sqlite3.connect('comisiones.db')
@@ -387,7 +387,7 @@ if __name__ == '__main__':
             AND tl.location not in (354, 365, 372, 419, 139, 377, 378, 257, 486, 487) -- no incluir EL ROBLE y PLAZA TLAQUEPAQUE ni MASCOTA 486 y 487
             -- AND tl.location = 282
             AND i.id = tl.item
-        ORDER BY t.trandate
+        ORDER BY t.trandate, t.id
 
     """
     client = OAuth1Session(
