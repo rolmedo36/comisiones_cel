@@ -1,14 +1,15 @@
+# calculo_comisiones_generales.py
+
 import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 
-# Lista de vendedores que usan Esquema 1 personalizado (pero con comisiones adicionales)
+# Lista de vendedores que usan Esquema 1 personalizado
 VENDEDORES_ESQUEMA1_PERSONAL = {
     'ALFONSO  M CARBALLAR',
     'ANGEL DANILO RODRIGUEZ LOPEZ',
     'GERMAN  GUZMAN AGUIRRE'
 }
-
 
 def get_weeks_for_month(year, month):
     start_date = datetime(year, month, 1)
@@ -45,7 +46,6 @@ def get_weeks_for_month(year, month):
 
     return weeks
 
-
 def crear_tabla_presupuestos_ubicaciones_si_no_existe(db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -62,6 +62,21 @@ def crear_tabla_presupuestos_ubicaciones_si_no_existe(db_path: str):
     conn.commit()
     conn.close()
 
+def crear_tabla_vendedores_esquema_personal_si_no_existe(db_path: str):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vendedores_esquema_personal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vendedor TEXT NOT NULL,
+        mes INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        presupuesto_vendedor REAL NOT NULL,
+        UNIQUE(vendedor, mes, anio)
+    );
+    """)
+    conn.commit()
+    conn.close()
 
 def crear_tabla_comisiones_por_vendedor_si_no_existe(db_path: str):
     conn = sqlite3.connect(db_path)
@@ -90,7 +105,6 @@ def crear_tabla_comisiones_por_vendedor_si_no_existe(db_path: str):
     conn.commit()
     conn.close()
 
-
 def crear_tabla_comisiones_semanales_si_no_existe(db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -117,24 +131,6 @@ def crear_tabla_comisiones_semanales_si_no_existe(db_path: str):
     conn.commit()
     conn.close()
 
-
-def crear_tabla_vendedores_esquema_personal_si_no_existe(db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS vendedores_esquema_personal (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vendedor TEXT NOT NULL,
-        mes INTEGER NOT NULL,
-        anio INTEGER NOT NULL,
-        presupuesto_vendedor REAL NOT NULL,
-        UNIQUE(vendedor, mes, anio)
-    );
-    """)
-    conn.commit()
-    conn.close()
-
-
 def crear_tabla_comisiones_vendedores_personales_si_no_existe(db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -157,32 +153,8 @@ def crear_tabla_comisiones_vendedores_personales_si_no_existe(db_path: str):
         fecha_calculo TEXT NOT NULL
     );
     """)
-    try:
-        cursor.execute(
-            "ALTER TABLE comisiones_vendedores_personales ADD COLUMN esquema_nicolas_aplicado BOOLEAN DEFAULT 0;")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" not in str(e).lower():
-            raise e
     conn.commit()
     conn.close()
-
-
-def crear_tabla_vendedores_esquema_nicolas_si_no_existe(db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS vendedores_esquema_nicolas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vendedor TEXT NOT NULL,
-        mes INTEGER NOT NULL,
-        anio INTEGER NOT NULL,
-        presupuesto_nicolas REAL NOT NULL,
-        UNIQUE(vendedor, mes, anio)
-    );
-    """)
-    conn.commit()
-    conn.close()
-
 
 def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
@@ -204,29 +176,16 @@ def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
     df = pd.read_sql_query(query, conn)
     conn.close()
 
-    df_original = df.copy()
-
     df['cantidad'] = pd.to_numeric(df['cantidad'], errors='coerce')
     df['precio_publico'] = pd.to_numeric(df['precio_publico'], errors='coerce')
     df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
 
-    df = df.dropna(subset=['fecha'])
+    df = df.dropna(subset=['fecha', 'cantidad', 'precio_publico', 'vendedor', 'ubicacion'])
     df = df[
         (df['fecha'].dt.year == year) &
         (df['fecha'].dt.month == month)
-        ].copy()
-    df = df.dropna(subset=['cantidad', 'precio_publico', 'vendedor', 'ubicacion'])
-
-    archivo_revision = f"revision_ventas_{year}_{month:02d}.xlsx"
-    with pd.ExcelWriter(archivo_revision, engine='openpyxl') as writer:
-        df_original.to_excel(writer, sheet_name='Ventas Originales', index=False)
-        df.to_excel(writer, sheet_name='Filtrado por Mes', index=False)
-
-    print(f"🔍 Datos de ventas exportados para revisión: {archivo_revision}")
-    print(f"✅ Registros válidos para {year}-{month:02d}: {len(df)}")
-
+    ].copy()
     return df
-
 
 def cargar_presupuestos_por_ubicacion(db_path: str, year: int, month: int) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
@@ -242,7 +201,6 @@ def cargar_presupuestos_por_ubicacion(db_path: str, year: int, month: int) -> pd
     df = df.dropna(subset=['presupuesto'])
     return df
 
-
 def cargar_vendedores_esquema_personal(db_path: str, year: int, month: int) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
     query = """
@@ -256,24 +214,6 @@ def cargar_vendedores_esquema_personal(db_path: str, year: int, month: int) -> p
     df['presupuesto_vendedor'] = pd.to_numeric(df['presupuesto_vendedor'], errors='coerce')
     df = df.dropna(subset=['presupuesto_vendedor'])
     return df
-
-
-def cargar_presupuesto_nicolas(db_path: str, year: int, month: int) -> float:
-    conn = sqlite3.connect(db_path)
-    query = """
-    SELECT presupuesto_nicolas
-    FROM vendedores_esquema_nicolas
-    WHERE vendedor = 'NICOLAS H ACEVES' AND mes = ? AND anio = ?;
-    """
-    df = pd.read_sql_query(query, conn, params=(month, year))
-    conn.close()
-
-    if df.empty:
-        return 0.0
-    else:
-        pres = pd.to_numeric(df['presupuesto_nicolas'].iloc[0], errors='coerce')
-        return float(pres) if pd.notna(pres) and pres > 0 else 0.0
-
 
 def calcular_porcentajes_esquema_personal(porc_cumplimiento: float):
     if 70 <= porc_cumplimiento < 76:
@@ -317,66 +257,26 @@ def calcular_porcentajes_esquema_personal(porc_cumplimiento: float):
             'comision_shumatsu': 0
         }
 
-
-def calcular_porcentajes_nicolas(porc_cumplimiento: float):
-    if porc_cumplimiento < 69:
-        return {
-            'comision_cuota': 0.0,
-            'comision_cxo': 0.0,
-            'comision_juguetes': 0.0,
-            'comision_dusa': 0.0,
-            'comision_shumatsu': 0.0
-        }
-    elif 70 <= porc_cumplimiento <= 75:
-        return {
-            'comision_cuota': 0.005,
-            'comision_cxo': 0.03,
-            'comision_juguetes': 0.005,
-            'comision_dusa': 0.01,
-            'comision_shumatsu': 0.03
-        }
-    elif 76 <= porc_cumplimiento <= 80:
-        return {
-            'comision_cuota': 0.01,
-            'comision_cxo': 0.045,
-            'comision_juguetes': 0.0075,
-            'comision_dusa': 0.015,
-            'comision_shumatsu': 0.045
-        }
-    elif 81 <= porc_cumplimiento <= 100:
-        return {
-            'comision_cuota': 0.02,
-            'comision_cxo': 0.06,
-            'comision_juguetes': 0.01,
-            'comision_dusa': 0.02,
-            'comision_shumatsu': 0.06
-        }
-    else:  # >= 110
-        return {
-            'comision_cuota': 0.025,
-            'comision_cxo': 0.06,
-            'comision_juguetes': 0.01,
-            'comision_dusa': 0.02,
-            'comision_shumatsu': 0.06
-        }
-
-
-def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
+def calcular_comisiones_generales(db_path: str, year: int, month: int):
+    # Crear tablas
     crear_tabla_presupuestos_ubicaciones_si_no_existe(db_path)
+    crear_tabla_vendedores_esquema_personal_si_no_existe(db_path)
     crear_tabla_comisiones_por_vendedor_si_no_existe(db_path)
     crear_tabla_comisiones_semanales_si_no_existe(db_path)
-    crear_tabla_vendedores_esquema_personal_si_no_existe(db_path)
     crear_tabla_comisiones_vendedores_personales_si_no_existe(db_path)
-    crear_tabla_vendedores_esquema_nicolas_si_no_existe(db_path)
 
     ventas = cargar_ventas_desde_db(db_path, year, month)
+    # Eliminar a NICOLAS de las ventas (solo para cálculo general)
+    ventas = ventas[ventas['vendedor'] != 'NICOLAS H ACEVES']
+
+    if ventas.empty:
+        print("⚠️ No hay ventas válidas para este mes (sin NICOLAS).")
+        return [], [], []
+
     presupuestos = cargar_presupuestos_por_ubicacion(db_path, year, month)
     vendedores_personal = cargar_vendedores_esquema_personal(db_path, year, month)
 
-    if ventas.empty:
-        print("⚠️ No hay ventas válidas para este mes.")
-        return [], [], []
-
+    # Diccionarios de presupuestos
     presupuestos_ubicacion = {}
     for _, row in presupuestos.iterrows():
         ub = row['ubicacion']
@@ -391,6 +291,7 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
         if pd.notna(pres) and pres > 0:
             presupuestos_vendedor[vend] = float(pres)
 
+    # Verificar presupuestos
     ubicaciones_con_ventas = set(ventas['ubicacion'].unique())
     ubicaciones_con_presupuesto = set(presupuestos_ubicacion.keys())
 
@@ -413,54 +314,44 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
         grupo_vendedor['venta_total'] = grupo_vendedor['cantidad'] * grupo_vendedor['precio_publico']
         venta_total_vendedor_global = grupo_vendedor['venta_total'].sum()
 
-        if vendedor == "NICOLAS H ACEVES":
-            continue
-
-        elif vendedor in VENDEDORES_ESQUEMA1_PERSONAL:
+        if vendedor in VENDEDORES_ESQUEMA1_PERSONAL:
             if vendedor not in presupuestos_vendedor:
                 print(f"⚠️ Advertencia: {vendedor} está en la lista, pero no tiene presupuesto.")
                 continue
 
             presupuesto_vendedor_valor = presupuestos_vendedor[vendedor]
             porc_cumplimiento = (venta_total_vendedor_global / presupuesto_vendedor_valor) * 100
-
-            # 🔸 Aplicar esquema personal COMPLETO (incluye 70-75%)
             porcentajes = calcular_porcentajes_esquema_personal(porc_cumplimiento)
             comision_mensual_total = venta_total_vendedor_global * porcentajes['comision_mensual']
 
-            # === Procesar por ubicación ===
             for ubicacion_local, grupo_ubicacion_local in grupo_vendedor.groupby('ubicacion'):
                 venta_en_ubicacion = grupo_ubicacion_local['venta_total'].sum()
 
-                # Distribuir comisión mensual
                 if venta_total_vendedor_global > 0:
                     proporcion = venta_en_ubicacion / venta_total_vendedor_global
                     comision_mensual_ubicacion = comision_mensual_total * proporcion
                 else:
                     comision_mensual_ubicacion = 0.0
 
-                # 🔸 Comisiones adicionales POR UBICACIÓN (usando mismos porcentajes)
                 juguetes = grupo_ubicacion_local[
                     (grupo_ubicacion_local['familia_comercial'] == 'JUGUETE') &
                     (~grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)) &
                     (grupo_ubicacion_local['precio_publico'] > 1500)
-                    ]
+                ]
                 comision_juguetes = juguetes['venta_total'].sum() * porcentajes['comision_juguetes']
 
-                cxo_ventas = grupo_ubicacion_local[
-                    grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)]
+                cxo_ventas = grupo_ubicacion_local[grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)]
                 comision_cxo = cxo_ventas['venta_total'].sum() * porcentajes['comision_cxo']
 
                 dusa = grupo_ubicacion_local[
                     (grupo_ubicacion_local['marca'] == 'DUSA') &
                     (grupo_ubicacion_local['id_articulo'] != '5356')
-                    ]
+                ]
                 comision_dusa = dusa['venta_total'].sum() * porcentajes['comision_dusa']
 
                 shumatsu = grupo_ubicacion_local[grupo_ubicacion_local['id_articulo'] == '5356']
                 comision_shumatsu = shumatsu['venta_total'].sum() * porcentajes['comision_shumatsu']
 
-                # === Cálculo semanal ===
                 comision_semanal_ubicacion = 0.0
                 presupuesto_ubicacion_valor = presupuestos_ubicacion[ubicacion_local]
                 presupuesto_diario = presupuesto_ubicacion_valor / 30.0
@@ -473,7 +364,7 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                     ventas_semana = grupo_ubicacion_local[
                         (grupo_ubicacion_local['fecha'].dt.date >= fi) &
                         (grupo_ubicacion_local['fecha'].dt.date <= ff)
-                        ]
+                    ]
                     venta_semana = ventas_semana['venta_total'].sum()
 
                     if venta_semana >= presupuesto_semana:
@@ -515,39 +406,37 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                     'comision_shumatsu': comision_shumatsu,
                     'comision_semanal': comision_semanal_ubicacion,
                     'total_comisiones': (
-                            comision_mensual_ubicacion +
-                            comision_juguetes +
-                            comision_cxo +
-                            comision_dusa +
-                            comision_shumatsu +
-                            comision_semanal_ubicacion
+                        comision_mensual_ubicacion +
+                        comision_juguetes +
+                        comision_cxo +
+                        comision_dusa +
+                        comision_shumatsu +
+                        comision_semanal_ubicacion
                     ),
                     'esquema_nicolas_aplicado': 0
                 })
 
         elif vendedor in presupuestos_vendedor:
-            # === ESQUEMA PERSONAL NORMAL ===
             presupuesto_vendedor_valor = presupuestos_vendedor[vendedor]
             porc_cumplimiento_personal = (venta_total_vendedor_global / presupuesto_vendedor_valor) * 100
             porcentajes = calcular_porcentajes_esquema_personal(porc_cumplimiento_personal)
 
             comision_mensual = venta_total_vendedor_global * porcentajes['comision_mensual']
 
-            cxo_ventas = grupo_vendedor[grupo_vendedor['marca'].astype(str).str.startswith('CXO', na=False)][
-                'venta_total'].sum()
+            cxo_ventas = grupo_vendedor[grupo_vendedor['marca'].astype(str).str.startswith('CXO', na=False)]['venta_total'].sum()
             comision_cxo = cxo_ventas * porcentajes['comision_cxo']
 
             juguetes = grupo_vendedor[
                 (grupo_vendedor['familia_comercial'] == 'JUGUETE') &
                 (~grupo_vendedor['marca'].astype(str).str.startswith('CXO', na=False)) &
                 (grupo_vendedor['precio_publico'] > 1500)
-                ]
+            ]
             comision_juguetes = juguetes['venta_total'].sum() * porcentajes['comision_juguetes']
 
             dusa = grupo_vendedor[
                 (grupo_vendedor['marca'] == 'DUSA') &
                 (grupo_vendedor['id_articulo'] != '5356')
-                ]
+            ]
             comision_dusa = dusa['venta_total'].sum() * porcentajes['comision_dusa']
 
             shumatsu = grupo_vendedor[grupo_vendedor['id_articulo'] == '5356']
@@ -566,7 +455,7 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                     ventas_semana = grupo_ubicacion_local[
                         (grupo_ubicacion_local['fecha'].dt.date >= fi) &
                         (grupo_ubicacion_local['fecha'].dt.date <= ff)
-                        ]
+                    ]
                     venta_semana = ventas_semana['venta_total'].sum()
 
                     if venta_semana >= presupuesto_semana:
@@ -608,22 +497,19 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                 'comision_shumatsu': comision_shumatsu,
                 'comision_semanal': comision_semanal_total,
                 'total_comisiones': (
-                        comision_mensual + comision_juguetes + comision_cxo +
-                        comision_dusa + comision_shumatsu + comision_semanal_total
+                    comision_mensual + comision_juguetes + comision_cxo +
+                    comision_dusa + comision_shumatsu + comision_semanal_total
                 ),
                 'esquema_nicolas_aplicado': 0
             })
 
         else:
-            # === ESQUEMA POR UBICACIÓN ===
             for ubicacion_local, grupo_ubicacion_local in grupo_vendedor.groupby('ubicacion'):
                 grupo_ubicacion_local = grupo_ubicacion_local.copy()
                 grupo_ubicacion_local['cantidad'] = pd.to_numeric(grupo_ubicacion_local['cantidad'], errors='coerce')
-                grupo_ubicacion_local['precio_publico'] = pd.to_numeric(grupo_ubicacion_local['precio_publico'],
-                                                                        errors='coerce')
+                grupo_ubicacion_local['precio_publico'] = pd.to_numeric(grupo_ubicacion_local['precio_publico'], errors='coerce')
                 grupo_ubicacion_local = grupo_ubicacion_local.dropna(subset=['cantidad', 'precio_publico'])
-                grupo_ubicacion_local['venta_total'] = grupo_ubicacion_local['cantidad'] * grupo_ubicacion_local[
-                    'precio_publico']
+                grupo_ubicacion_local['venta_total'] = grupo_ubicacion_local['cantidad'] * grupo_ubicacion_local['precio_publico']
 
                 presupuesto_ubicacion_valor = presupuestos_ubicacion[ubicacion_local]
                 venta_total_ubicacion = grupo_ubicacion_local['venta_total'].sum()
@@ -643,22 +529,20 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                 venta_total_vendedor = grupo_ubicacion_local['venta_total'].sum()
                 comision_mensual = venta_total_vendedor * porc_com_mensual_ubicacion
 
-                cxo_ventas = \
-                grupo_ubicacion_local[grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)][
-                    'venta_total'].sum()
+                cxo_ventas = grupo_ubicacion_local[grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)]['venta_total'].sum()
                 comision_cxo = cxo_ventas * 0.06
 
                 juguetes = grupo_ubicacion_local[
                     (grupo_ubicacion_local['familia_comercial'] == 'JUGUETE') &
                     (~grupo_ubicacion_local['marca'].astype(str).str.startswith('CXO', na=False)) &
                     (grupo_ubicacion_local['precio_publico'] > 1500)
-                    ]
+                ]
                 comision_juguetes = juguetes['venta_total'].sum() * 0.01
 
                 dusa = grupo_ubicacion_local[
                     (grupo_ubicacion_local['marca'] == 'DUSA') &
                     (grupo_ubicacion_local['id_articulo'] != '5356')
-                    ]
+                ]
                 comision_dusa = dusa['venta_total'].sum() * 0.02
 
                 shumatsu = grupo_ubicacion_local[grupo_ubicacion_local['id_articulo'] == '5356']
@@ -674,7 +558,7 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                     ventas_semana = grupo_ubicacion_local[
                         (grupo_ubicacion_local['fecha'].dt.date >= fi) &
                         (grupo_ubicacion_local['fecha'].dt.date <= ff)
-                        ]
+                    ]
                     venta_semana = ventas_semana['venta_total'].sum()
 
                     if venta_semana >= presupuesto_semana:
@@ -716,138 +600,12 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
                     'comision_shumatsu': comision_shumatsu,
                     'comision_semanal': comision_semanal_total,
                     'total_comisiones': (
-                            comision_mensual + comision_juguetes + comision_cxo +
-                            comision_dusa + comision_shumatsu + comision_semanal_total
+                        comision_mensual + comision_juguetes + comision_cxo +
+                        comision_dusa + comision_shumatsu + comision_semanal_total
                     )
                 })
 
-    # === Procesar NICOLAS H ACEVES ===
-    nicolas_nombre = "NICOLAS H ACEVES"
-    if nicolas_nombre in ventas['vendedor'].unique():
-        grupo_nicolas = ventas[ventas['vendedor'] == nicolas_nombre].copy()
-        grupo_nicolas['cantidad'] = pd.to_numeric(grupo_nicolas['cantidad'], errors='coerce')
-        grupo_nicolas['precio_publico'] = pd.to_numeric(grupo_nicolas['precio_publico'], errors='coerce')
-        grupo_nicolas = grupo_nicolas.dropna(subset=['cantidad', 'precio_publico'])
-        grupo_nicolas['venta_total'] = grupo_nicolas['cantidad'] * grupo_nicolas['precio_publico']
-        venta_total_nicolas = grupo_nicolas['venta_total'].sum()
-
-        presupuesto_nicolas = cargar_presupuesto_nicolas(db_path, year, month)
-        if presupuesto_nicolas > 0:
-            porc_cumplimiento_nicolas = (venta_total_nicolas / presupuesto_nicolas) * 100
-            porcentajes_nicolas = calcular_porcentajes_nicolas(porc_cumplimiento_nicolas)
-
-            comision_cuota_adicional = venta_total_nicolas * porcentajes_nicolas['comision_cuota']
-
-            cxo_ventas = grupo_nicolas[grupo_nicolas['marca'].astype(str).str.startswith('CXO', na=False)][
-                'venta_total'].sum()
-            comision_cxo_adicional = cxo_ventas * porcentajes_nicolas['comision_cxo']
-
-            juguetes = grupo_nicolas[
-                (grupo_nicolas['familia_comercial'] == 'JUGUETE') &
-                (~grupo_nicolas['marca'].astype(str).str.startswith('CXO', na=False)) &
-                (grupo_nicolas['precio_publico'] > 1500)
-                ]
-            comision_juguetes_adicional = juguetes['venta_total'].sum() * porcentajes_nicolas['comision_juguetes']
-
-            dusa = grupo_nicolas[
-                (grupo_nicolas['marca'] == 'DUSA') &
-                (grupo_nicolas['id_articulo'] != '5356')
-                ]
-            comision_dusa_adicional = dusa['venta_total'].sum() * porcentajes_nicolas['comision_dusa']
-
-            shumatsu = grupo_nicolas[grupo_nicolas['id_articulo'] == '5356']
-            comision_shumatsu_adicional = shumatsu['venta_total'].sum() * porcentajes_nicolas['comision_shumatsu']
-
-            comision_semanal_nicolas = 0.0
-            for ubicacion_local, grupo_ubicacion_local in grupo_nicolas.groupby('ubicacion'):
-                presupuesto_ubicacion_valor = presupuestos_ubicacion[ubicacion_local]
-                presupuesto_diario = presupuesto_ubicacion_valor / 30.0
-
-                for i, semana in enumerate(semanas, start=1):
-                    dias_semana = len(semana)
-                    presupuesto_semana = presupuesto_diario * dias_semana
-
-                    fi, ff = semana[0], semana[-1]
-                    ventas_semana = grupo_ubicacion_local[
-                        (grupo_ubicacion_local['fecha'].dt.date >= fi) &
-                        (grupo_ubicacion_local['fecha'].dt.date <= ff)
-                        ]
-                    venta_semana = ventas_semana['venta_total'].sum()
-
-                    if venta_semana >= presupuesto_semana:
-                        comision_semana = venta_semana * 0.01
-                    else:
-                        comision_semana = 0.0
-
-                    comision_semanal_nicolas += comision_semana
-
-                    dias_str = ', '.join([d.strftime('%d/%m/%Y') for d in semana])
-                    detalles_semanales.append({
-                        'vendedor': nicolas_nombre,
-                        'ubicacion': ubicacion_local,
-                        'mes': month,
-                        'anio': year,
-                        'semana_numero': i,
-                        'fecha_inicio': fi.strftime('%Y-%m-%d'),
-                        'fecha_fin': ff.strftime('%Y-%m-%d'),
-                        'dias_incluidos': dias_str,
-                        'dias_semana': dias_semana,
-                        'presupuesto_diario': presupuesto_diario,
-                        'presupuesto_semana': presupuesto_semana,
-                        'venta_semana': venta_semana,
-                        'comision_semana': comision_semana,
-                        'cumplio_semana': venta_semana >= presupuesto_semana
-                    })
-
-            nicolas_en_personales = False
-            for rp in resultados_personales:
-                if rp['vendedor'] == nicolas_nombre:
-                    nicolas_en_personales = True
-                    rp['comision_mensual'] += comision_cuota_adicional
-                    rp['comision_cxo'] += comision_cxo_adicional
-                    rp['comision_juguetes'] += comision_juguetes_adicional
-                    rp['comision_dusa'] += comision_dusa_adicional
-                    rp['comision_shumatsu'] += comision_shumatsu_adicional
-                    rp['comision_semanal'] += comision_semanal_nicolas
-                    rp['total_comisiones'] += (
-                            comision_cuota_adicional +
-                            comision_cxo_adicional +
-                            comision_juguetes_adicional +
-                            comision_dusa_adicional +
-                            comision_shumatsu_adicional +
-                            comision_semanal_nicolas
-                    )
-                    rp['esquema_nicolas_aplicado'] = 1
-                    break
-
-            if not nicolas_en_personales:
-                resultados_personales.append({
-                    'vendedor': nicolas_nombre,
-                    'ubicacion': 'Personal',
-                    'presupuesto_vendedor': presupuesto_nicolas,
-                    'venta_total_vendedor': venta_total_nicolas,
-                    'venta_total_vendedor_global': venta_total_nicolas,
-                    'porcentaje_cumplimiento_personal': porc_cumplimiento_nicolas,
-                    'comision_mensual': comision_cuota_adicional,
-                    'comision_juguetes': comision_juguetes_adicional,
-                    'comision_cxo': comision_cxo_adicional,
-                    'comision_dusa': comision_dusa_adicional,
-                    'comision_shumatsu': comision_shumatsu_adicional,
-                    'comision_semanal': comision_semanal_nicolas,
-                    'total_comisiones': (
-                            comision_cuota_adicional +
-                            comision_juguetes_adicional +
-                            comision_cxo_adicional +
-                            comision_dusa_adicional +
-                            comision_shumatsu_adicional +
-                            comision_semanal_nicolas
-                    ),
-                    'esquema_nicolas_aplicado': 1
-                })
-        else:
-            print(f"⚠️ Advertencia: No se encontró presupuesto para NICOLAS H ACEVES.")
-
-    # === Guardar en base de datos ===
+    # Guardar en base de datos
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM comisiones_por_vendedor WHERE mes = ? AND anio = ?", (month, year))
@@ -893,14 +651,14 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
             venta_total_vendedor, porcentaje_cumplimiento_personal,
             comision_mensual, comision_juguetes, comision_cxo,
             comision_dusa, comision_shumatsu, comision_semanal,
-            total_comisiones, esquema_nicolas_aplicado, fecha_calculo
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            total_comisiones, fecha_calculo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             res_p['vendedor'], month, year, res_p['presupuesto_vendedor'],
             res_p['venta_total_vendedor'], res_p['porcentaje_cumplimiento_personal'],
             res_p['comision_mensual'], res_p['comision_juguetes'], res_p['comision_cxo'],
             res_p['comision_dusa'], res_p['comision_shumatsu'], res_p['comision_semanal'],
-            res_p['total_comisiones'], int(res_p['esquema_nicolas_aplicado']), ahora
+            res_p['total_comisiones'], ahora
         ))
 
     conn.commit()
@@ -908,12 +666,10 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
 
     return resultados, detalles_semanales, resultados_personales
 
-
-def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_personales: list, archivo_salida: str,
-                     db_path: str, year: int, month: int):
+def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_path: str, year: int, month: int):
     df_resultados = pd.DataFrame(resultados)
-    df_semanal = pd.DataFrame(detalles_semanales)
-    df_personal = pd.DataFrame(resultados_personales)
+    df_semanal = pd.DataFrame(detalles)
+    df_personal = pd.DataFrame(personales)
 
     with pd.ExcelWriter(archivo_salida, engine='openpyxl') as writer:
         df_resultados.to_excel(writer, sheet_name='Comisiones por Vendedor', index=False)
@@ -922,7 +678,7 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
         esquema1_personal = []
         otros_personales = []
 
-        for res in resultados_personales:
+        for res in personales:
             if res['vendedor'] in VENDEDORES_ESQUEMA1_PERSONAL:
                 esquema1_personal.append(res)
             else:
@@ -944,18 +700,18 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
                 'ubicacion': res['ubicacion'],
                 'esquema': 'ubicacion',
                 'comision_ventas_fijas': (
-                        res['comision_mensual'] +
-                        res['comision_juguetes'] +
-                        res['comision_cxo'] +
-                        res['comision_dusa'] +
-                        res['comision_shumatsu']
+                    res['comision_mensual'] +
+                    res['comision_juguetes'] +
+                    res['comision_cxo'] +
+                    res['comision_dusa'] +
+                    res['comision_shumatsu']
                 ),
                 'comision_semanal': res['comision_semanal'],
                 'total_comisiones': res['total_comisiones'],
                 'esquema_nicolas_aplicado': 0
             })
 
-        for res in resultados_personales:
+        for res in personales:
             if res['vendedor'] in VENDEDORES_ESQUEMA1_PERSONAL:
                 ubicacion_resumen = res['ubicacion']
             else:
@@ -966,15 +722,15 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
                 'ubicacion': ubicacion_resumen,
                 'esquema': 'esquema1_personal' if res['vendedor'] in VENDEDORES_ESQUEMA1_PERSONAL else 'personal',
                 'comision_ventas_fijas': (
-                        res['comision_mensual'] +
-                        res['comision_juguetes'] +
-                        res['comision_cxo'] +
-                        res['comision_dusa'] +
-                        res['comision_shumatsu']
+                    res['comision_mensual'] +
+                    res['comision_juguetes'] +
+                    res['comision_cxo'] +
+                    res['comision_dusa'] +
+                    res['comision_shumatsu']
                 ),
                 'comision_semanal': res['comision_semanal'],
                 'total_comisiones': res['total_comisiones'],
-                'esquema_nicolas_aplicado': int(res.get('esquema_nicolas_aplicado', 0))
+                'esquema_nicolas_aplicado': 0
             })
 
         df_resumen_total = pd.DataFrame(resumen_total)
@@ -990,74 +746,15 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
             }).reset_index()
             resumen_ubic.to_excel(writer, sheet_name='Resumen por Ubicación', index=False)
 
-        # === NUEVA HOJA: Revisión de comisiones adicionales ===
-        revision_datos = []
-
-        todos_los_registros = []
-
-        for res in resultados:
-            todos_los_registros.append((res['vendedor'], res['ubicacion']))
-
-        for res in resultados_personales:
-            if 'ubicacion' in res and res['ubicacion'] != 'Personal':
-                todos_los_registros.append((res['vendedor'], res['ubicacion']))
-
-        unicos = list(set(todos_los_registros))
-        ventas_mes = cargar_ventas_desde_db(db_path, year, month)
-
-        for vendedor, ubicacion in unicos:
-            filtro = (ventas_mes['vendedor'] == vendedor) & (ventas_mes['ubicacion'] == ubicacion)
-            ventas_vend_ub = ventas_mes[filtro].copy()
-
-            if ventas_vend_ub.empty:
-                continue
-
-            ventas_vend_ub['venta_total'] = ventas_vend_ub['cantidad'] * ventas_vend_ub['precio_publico']
-
-            juguetes = ventas_vend_ub[
-                (ventas_vend_ub['familia_comercial'] == 'JUGUETE') &
-                (~ventas_vend_ub['marca'].astype(str).str.startswith('CXO', na=False)) &
-                (ventas_vend_ub['precio_publico'] > 1500)
-                ]
-            venta_juguetes = juguetes['venta_total'].sum()
-
-            cxo = ventas_vend_ub[ventas_vend_ub['marca'].astype(str).str.startswith('CXO', na=False)]
-            venta_cxo = cxo['venta_total'].sum()
-
-            dusa = ventas_vend_ub[
-                (ventas_vend_ub['marca'] == 'DUSA') &
-                (ventas_vend_ub['id_articulo'] != '5356')
-                ]
-            venta_dusa = dusa['venta_total'].sum()
-
-            pastilla = ventas_vend_ub[ventas_vend_ub['id_articulo'] == '5356']
-            venta_pastilla = pastilla['venta_total'].sum()
-
-            revision_datos.append({
-                'VENDEDOR': vendedor,
-                'UBICACION': ubicacion,
-                'VENTA_JUGUETES': venta_juguetes,
-                'VENTA_CXO': venta_cxo,
-                'VENTA_DUSA': venta_dusa,
-                'VENTA_PASTILLA': venta_pastilla
-            })
-
-        if revision_datos:
-            df_revision = pd.DataFrame(revision_datos)
-            df_revision = df_revision.sort_values(['VENDEDOR', 'UBICACION']).reset_index(drop=True)
-            df_revision.to_excel(writer, sheet_name='Revision Comisiones Adicionales', index=False)
-
     print(f"📄 Reporte guardado en: {archivo_salida}")
 
-
-# === EJECUCIÓN ===
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
     YEAR = 2025
     MONTH = 12
 
-    print("🔍 Calculando comisiones...")
-    resultados, detalles, personales = calcular_comisiones_por_vendedor(DB_PATH, YEAR, MONTH)
+    print("🔍 Calculando comisiones GENERALES (sin NICOLAS)...")
+    resultados, detalles, personales = calcular_comisiones_generales(DB_PATH, YEAR, MONTH)
 
-    archivo_excel = f"comisiones_{MONTH}_{YEAR}_final.xlsx"
+    archivo_excel = f"comisiones_generales_{MONTH}_{YEAR}.xlsx"
     exportar_a_excel(resultados, detalles, personales, archivo_excel, DB_PATH, YEAR, MONTH)
