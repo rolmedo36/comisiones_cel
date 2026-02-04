@@ -258,6 +258,7 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
     ventas = cargar_ventas_desde_db(db_path, year, month)
     presupuestos = cargar_presupuestos_por_ubicacion(db_path, year, month)
     vendedores_personal = cargar_vendedores_esquema_personal(db_path, year, month)
+    print("vendedores_personal", vendedores_personal)
 
     if ventas.empty:
         print("⚠️ No hay ventas válidas para este mes.")
@@ -806,8 +807,8 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
 # === EJECUCIÓN ===
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
-    YEAR = 2025
-    MONTH = 12
+    YEAR = 2026
+    MONTH = 1
 
     print(f"🔍 Calculando comisiones con esquema personal para {MONTH}/{YEAR}...")
     resultados, detalles, personales = calcular_comisiones_por_vendedor(DB_PATH, YEAR, MONTH)

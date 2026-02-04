@@ -338,7 +338,7 @@ def agrupa_marca():
 
 if __name__ == '__main__':
     # mes_ini = datetime.today().replace(day=1).strftime("%d/%m/%Y")
-    mes_ini = '01/12/2025'
+    mes_ini = '01/01/2026'
     archivo = 'comisiones.csv'
     results = []
     conn = sqlite3.connect('comisiones.db')
@@ -358,18 +358,10 @@ if __name__ == '__main__':
             BUILTIN.DF(i.custitem23) as familia_comercial,
 
             ABS(tl.quantity) as cantidad,
-            -- tl.netAmount as importe_neto, -- este importe ya esta menos el costo
             ( SELECT TOP 1 NVL(price,'0') FROM itemPrice ip WHERE ip.item = tl.item AND ip.priceLevelName = 'PRECIO PUBLICO') as precio_publico,
             tl.custcol_ctr_promo_discount as promo_descuento,
             tl.custcol_ctr_promo_id as promo_id
-            -- COALESCE(t.custbody24, '0')  as importe_efectivo,
-            -- COALESCE(t.custbody25, 0) as importe_efectivo_clip,
-            -- t.custbody_pos_tarjeta_banorte as importe_banorte,
-            -- t.custbody_pos_efectivo as importe_efectivo_ok,
-            -- t.custbody_drt_pos_metclip as importe_clip_ok,
-            -- t.custbody_pos_tarjeta_rappi as importe_rappi,
-            -- t.custbody_pos_tarjeta_credito as importe_banregio, -- franquicias
-            -- t.type as tipo
+
         FROM 
             transaction t,
             transactionline tl,

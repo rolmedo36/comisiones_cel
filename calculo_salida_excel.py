@@ -84,8 +84,8 @@ def cargar_presupuestos_por_vendedor(db_path: str, year: int, month: int) -> pd.
     conn = sqlite3.connect(db_path)
     query = """
     SELECT vendedor, presupuesto
-    FROM presupuestos_vendedores
-    WHERE mes = ? AND year = ?;
+    FROM presupuesto_vendedor
+    WHERE mes = ? AND año = ?;
     """
     df = pd.read_sql_query(query, conn, params=(month, year))
     conn.close()
@@ -219,8 +219,8 @@ def calcular_comisiones_por_vendedor(
     for res in resultados:
         cursor.execute("""
         INSERT INTO comisiones_por_vendedor (
-            vendedor, mes, anio, presupuesto_asignado,
-            venta_total_vendedor, porcentaje_cumplimiento,
+            vendedor, mes, anio, presupuesto_ubicacion,
+            venta_total_vendedor, porcentaje_cumplimiento_ubicacion,
             comision_mensual, comision_juguetes, comision_cxo,
             comision_dusa, comision_shumatsu, comision_semanal, total_comisiones,
             fecha_calculo
@@ -239,7 +239,7 @@ def calcular_comisiones_por_vendedor(
             res['comision_shumatsu'],
             res['comision_semanal'],
             res['total_comisiones'],
-            ahora
+
         ))
 
     conn.commit()
@@ -260,8 +260,8 @@ def exportar_a_excel(resultados: list, archivo_salida: str):
 # === EJECUCIÓN ===
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
-    YEAR = 2025
-    MONTH = 10
+    YEAR = 2026
+    MONTH = 1
 
     print(f"🔍 Calculando comisiones por vendedor para {MONTH}/{YEAR}...")
     resultados = calcular_comisiones_por_vendedor(DB_PATH, YEAR, MONTH)

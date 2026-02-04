@@ -413,10 +413,10 @@ def calcular_comisiones_por_vendedor(db_path: str, year: int, month: int):
         grupo_vendedor['venta_total'] = grupo_vendedor['cantidad'] * grupo_vendedor['precio_publico']
         venta_total_vendedor_global = grupo_vendedor['venta_total'].sum()
 
-        if vendedor == "NICOLAS H ACEVES":
-            continue
+        # if vendedor == "NICOLAS H ACEVES":
+        #    continue
 
-        elif vendedor in VENDEDORES_ESQUEMA1_PERSONAL:
+        if vendedor in VENDEDORES_ESQUEMA1_PERSONAL:
             if vendedor not in presupuestos_vendedor:
                 print(f"⚠️ Advertencia: {vendedor} está en la lista, pero no tiene presupuesto.")
                 continue
@@ -1053,8 +1053,8 @@ def exportar_a_excel(resultados: list, detalles_semanales: list, resultados_pers
 # === EJECUCIÓN ===
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
-    YEAR = 2025
-    MONTH = 12
+    YEAR = 2026
+    MONTH = 1
 
     print("🔍 Calculando comisiones...")
     resultados, detalles, personales = calcular_comisiones_por_vendedor(DB_PATH, YEAR, MONTH)

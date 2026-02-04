@@ -750,8 +750,8 @@ def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_p
 
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
-    YEAR = 2025
-    MONTH = 12
+    YEAR = 2026
+    MONTH = 1
 
     print("🔍 Calculando comisiones GENERALES (sin NICOLAS)...")
     resultados, detalles, personales = calcular_comisiones_generales(DB_PATH, YEAR, MONTH)
