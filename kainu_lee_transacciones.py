@@ -108,6 +108,7 @@ if __name__ == '__main__':
 
     qry = f"""
         SELECT
+            i.itemtype as tipo,
             t.tranid as transaccion,
             t.trandate as fecha,
             BUILTIN.DF(t.employee) as vendedor,
@@ -130,8 +131,8 @@ if __name__ == '__main__':
             item i
         WHERE 1=1
             AND t.type = 'CashSale'
-            AND t.trandate >= '{mes_ini}'
-            -- AND t.trandate = '31/10/2025'
+            --AND t.trandate >= '{mes_ini}'
+            AND t.trandate >= '01/12/2025'
             AND tl.transaction = t.id
             AND tl.taxLine = 'F'
             AND tl.mainLine = 'F'
@@ -156,6 +157,7 @@ if __name__ == '__main__':
     data = fetch_all_suiteql(client, qry)
 
     df = pd.DataFrame(data)
+    df.loc[df['id_articulo'] == '23892', 'vendedor'] = 'CRISTOBAL OROZCO ALVAREZ'
     df.to_csv(archivo, index=False, encoding="utf-8-sig")
 
     df = df.drop(columns='links')
