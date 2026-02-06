@@ -46,7 +46,7 @@ def generar_reporte_comisiones_final():
         print(f"Sin datos para {mes_req}/{anio_req}")
         return
 
-    df_p['Importe Total'] = df_p['cantidad'] * df_p['precio_publico']
+    df_p['Importe Total'] = (df_p['cantidad'] * df_p['precio_publico']) / 1.16
 
     # --- LÓGICA DE REGLAS ROBUSTA ---
     def calcular_comision_final(row):
