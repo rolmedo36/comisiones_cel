@@ -1,7 +1,8 @@
 # calculo_comisiones_unificado.py
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+from typing import List
 
 # Lista de vendedores que usan Esquema 1 personalizado
 VENDEDORES_ESQUEMA1_PERSONAL = {
@@ -10,7 +11,83 @@ VENDEDORES_ESQUEMA1_PERSONAL = {
     'GERMAN  GUZMAN AGUIRRE'
 }
 
-def get_weeks_for_month(year, month):
+def get_weeks_for_month(year: int, month: int) -> List[List[date]]:
+    """
+    Genera semanas para cálculo de comisiones según reglas de negocio:
+
+    1. Semana 1:
+       - Si 1ro es Dom, Lun o Mar → Días 1 al 8
+       - Si 1ro es Mié, Jue, Vie o Sáb → Días 1 hasta el próximo Domingo
+    2. Semanas 2+: Bloques de 7 días (Lunes a Domingo)
+    3. Última semana:
+       - Si tiene < 5 días → se fusiona con la semana anterior
+       - Si tiene >= 5 días → se queda como está
+    4. Solo días del mes actual
+
+    Args:
+        year (int): Año
+        month (int): Mes (1-12)
+
+    Returns:
+        List[List[date]]: Lista de semanas
+    """
+    # 1. Obtener último día del mes
+    if month == 12:
+        next_month_first = date(year + 1, 1, 1)
+    else:
+        next_month_first = date(year, month + 1, 1)
+
+    last_day_of_month = (next_month_first - timedelta(days=1)).day
+    first_day = date(year, month, 1)
+
+    weeks = []
+
+    # 2. Generar Semana 1
+    week_1 = []
+    weekday_of_first = first_day.weekday()  # 0=Lun, 1=Mar, 2=Mie, 3=Jue, 4=Vie, 5=Sab, 6=Dom
+
+    # Si es Miércoles(2), Jueves(3), Viernes(4) o Sábado(5) → hasta el próximo Domingo
+    if weekday_of_first in [2, 3, 4, 5]:
+        days_until_sunday = 6 - weekday_of_first
+        end_day_week1 = 1 + days_until_sunday
+    else:
+        # Domingo(6), Lunes(0) o Martes(1) → días 1 al 8
+        end_day_week1 = 8
+
+    # Asegurar no pasar del último día del mes
+    end_day_week1 = min(end_day_week1, last_day_of_month)
+
+    for day in range(1, end_day_week1 + 1):
+        week_1.append(date(year, month, day))
+    weeks.append(week_1)
+
+    # 3. Generar Semanas 2+ (bloques de 7 días)
+    current_day = end_day_week1 + 1
+
+    while current_day <= last_day_of_month:
+        week_days = []
+
+        # Agregar hasta 7 días o hasta fin de mes
+        for i in range(7):
+            day_num = current_day + i
+            if day_num > last_day_of_month:
+                break
+            week_days.append(date(year, month, day_num))
+
+        if week_days:
+            weeks.append(week_days)
+            current_day += len(week_days)
+        else:
+            break
+
+    # 4. Aplicar regla de fusión: si última semana < 5 días, fusionar con la anterior
+    if len(weeks) > 1 and len(weeks[-1]) < 4:
+        last_week = weeks.pop()  # Remover última semana
+        weeks[-1].extend(last_week)  # Fusionar con la semana anterior
+
+    return weeks
+
+def get_weeks_for_month_resp(year, month):
     start_date = datetime(year, month, 1)
     if month == 12:
         end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
@@ -262,6 +339,156 @@ def calcular_porcentajes_esquema_personal(porc_cumplimiento: float):
         }
 
 def calcular_comisiones_unificadas(db_path: str, year: int, month: int):
+    # 1. Asegurar tablas
+    crear_tabla_presupuestos_ubicaciones_si_no_existe(db_path)
+    crear_tabla_vendedores_esquema_personal_si_no_existe(db_path)
+    crear_tabla_comisiones_por_vendedor_si_no_existe(db_path)
+    crear_tabla_comisiones_semanales_si_no_existe(db_path)
+    crear_tabla_comisiones_vendedores_personales_si_no_existe(db_path)
+
+    # 2. Carga de datos
+    ventas = cargar_ventas_desde_db(db_path, year, month)
+    if ventas.empty:
+        print("⚠️ No hay ventas válidas.")
+        return [], [], []
+
+    presupuestos = cargar_presupuestos_por_ubicacion(db_path, year, month)
+    vendedores_personal = cargar_vendedores_esquema_personal(db_path, year, month)
+
+    presupuestos_ubicacion = {row['ubicacion']: float(row['presupuesto']) for _, row in presupuestos.iterrows()}
+    presupuestos_vendedor = {row['vendedor']: float(row['presupuesto_vendedor']) for _, row in
+                             vendedores_personal.iterrows()}
+
+    semanas = get_weeks_for_month(year, month)
+    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    resultados = []
+    detalles_semanales = []
+    resultados_personales = []
+
+    # === PASO 1: CÁLCULO INDIVIDUAL ===
+    for (vendedor, ubicacion), grupo in ventas.groupby(['vendedor', 'ubicacion']):
+        grupo = grupo.copy()
+        grupo['venta_total'] = pd.to_numeric(grupo['cantidad'], errors='coerce').fillna(0) * \
+                               pd.to_numeric(grupo['precio_publico'], errors='coerce').fillna(0)
+
+        venta_total_v = grupo['venta_total'].sum()
+        if venta_total_v <= 0: continue
+
+        presu_ubi_val = presupuestos_ubicacion.get(ubicacion, 0)
+        if presu_ubi_val == 0: continue
+
+        porc_cumpl_ubi = (venta_total_v / presu_ubi_val) * 100
+
+        # Inicialización
+        esquema_personal = False
+        porcentajes = {}
+        porc_com_mensual = 0.0
+
+        if vendedor in VENDEDORES_ESQUEMA1_PERSONAL or vendedor in presupuestos_vendedor:
+            if vendedor in presupuestos_vendedor:
+                esquema_personal = True
+                presu_v_val = presupuestos_vendedor[vendedor]
+                porc_cumpl_p = (venta_total_v / presu_v_val) * 100
+                porcentajes = calcular_porcentajes_esquema_personal(porc_cumpl_p)
+
+        if not esquema_personal:
+            if 75 <= porc_cumpl_ubi < 80:
+                porc_com_mensual = 0.01
+            elif 80 <= porc_cumpl_ubi < 90:
+                porc_com_mensual = 0.0125
+            elif 90 <= porc_cumpl_ubi < 110:
+                porc_com_mensual = 0.02
+            elif porc_cumpl_ubi >= 110:
+                porc_com_mensual = 0.025
+
+        # Marcas
+        com_juguetes = grupo[(grupo['familia_comercial'] == 'JUGUETE') & (
+            ~grupo['marca'].astype(str).str.startswith('CXO', na=False)) & (grupo['precio_publico'] > 1500)][
+                           'venta_total'].sum() * (
+                           porcentajes.get('comision_juguetes', 0.01) if esquema_personal else 0.01)
+        com_cxo = grupo[grupo['marca'].astype(str).str.startswith('CXO', na=False)]['venta_total'].sum() * (
+            porcentajes.get('comision_cxo', 0.06) if esquema_personal else 0.06)
+        com_dusa = grupo[(grupo['marca'] == 'DUSA') & (grupo['id_articulo'] != '5356')]['venta_total'].sum() * (
+            porcentajes.get('comision_dusa', 0.02) if esquema_personal else 0.02)
+        com_shumatsu = grupo[grupo['id_articulo'] == '5356']['venta_total'].sum() * (
+            porcentajes.get('comision_shumatsu', 0.06) if esquema_personal else 0.06)
+        com_mensual = venta_total_v * (
+            porcentajes.get('comision_mensual', porc_com_mensual) if esquema_personal else porc_com_mensual)
+
+        res_vendedor = {
+            'vendedor': vendedor, 'ubicacion': ubicacion, 'mes': month, 'anio': year,
+            'presupuesto_ubicacion': presu_ubi_val, 'venta_total_ubicacion': venta_total_v,
+            'porcentaje_cumplimiento_ubicacion': porc_cumpl_ubi, 'venta_total_vendedor': venta_total_v,
+            'comision_mensual': com_mensual, 'comision_juguetes': com_juguetes,
+            'comision_cxo': com_cxo, 'comision_dusa': com_dusa, 'comision_shumatsu': com_shumatsu,
+            'comision_semanal': 0.0,
+            'total_comisiones': com_mensual + com_juguetes + com_cxo + com_dusa + com_shumatsu,
+            'fecha_calculo': ahora
+        }
+        resultados.append(res_vendedor)
+
+        if esquema_personal:
+            # AQUÍ: Mantenemos 'ubicacion' para el Excel, se filtrará solo al guardar en DB
+            res_p = res_vendedor.copy()
+            res_p['presupuesto_vendedor'] = presu_v_val
+            res_p['porcentaje_cumplimiento_personal'] = porc_cumpl_p
+            res_p['venta_total_vendedor_global'] = venta_total_v
+            resultados_personales.append(res_p)
+
+    # === PASO 2: BONO SEMANAL TIENDA ===
+    for ubi, presu_total in presupuestos_ubicacion.items():
+        presu_diario = presu_total / 30.0
+        v_tienda = ventas[ventas['ubicacion'] == ubi].copy()
+        v_tienda['venta_total'] = pd.to_numeric(v_tienda['cantidad'], errors='coerce').fillna(0) * \
+                                  pd.to_numeric(v_tienda['precio_publico'], errors='coerce').fillna(0)
+
+        for i, sem in enumerate(semanas, start=1):
+            presu_sem = presu_diario * len(sem)
+            v_sem = v_tienda[(v_tienda['fecha'].dt.date >= sem[0]) & (v_tienda['fecha'].dt.date <= sem[-1])][
+                'venta_total'].sum()
+            cumple = v_sem >= presu_sem
+            detalles_semanales.append({
+                'vendedor': f"BONO TIENDA {ubi}", 'ubicacion': ubi, 'mes': month, 'anio': year, 'semana_numero': i,
+                'fecha_inicio': sem[0].strftime('%Y-%m-%d'), 'fecha_fin': sem[-1].strftime('%Y-%m-%d'),
+                'dias_incluidos': ', '.join([d.strftime('%d/%m') for d in sem]), 'dias_semana': len(sem),
+                'presupuesto_diario': presu_diario, 'presupuesto_semana': presu_sem, 'venta_semana': v_sem,
+                'comision_semana': v_sem * 0.01 if cumple else 0.0, 'cumplio_semana': int(cumple),
+                'fecha_calculo': ahora
+            })
+
+    # === PASO 3: GUARDADO SEGURO EN DB ===
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM comisiones_por_vendedor WHERE mes = ? AND anio = ?", (month, year))
+    conn.execute("DELETE FROM comisiones_semanales_por_vendedor WHERE mes = ? AND anio = ?", (month, year))
+    conn.execute("DELETE FROM comisiones_vendedores_personales WHERE mes = ? AND anio = ?", (month, year))
+
+    if resultados:
+        pd.DataFrame(resultados).to_sql('comisiones_por_vendedor', conn, if_exists='append', index=False)
+
+    if detalles_semanales:
+        pd.DataFrame(detalles_semanales).to_sql('comisiones_semanales_por_vendedor', conn, if_exists='append',
+                                                index=False)
+
+    if resultados_personales:
+        # AQUÍ ESTÁ EL TRUCO: Creamos un DF y eliminamos la columna 'ubicacion' solo para la DB
+        df_personales_db = pd.DataFrame(resultados_personales).drop(columns=['ubicacion'], errors='ignore')
+        # También eliminamos otras que no existan en tu tabla personal según tu esquema original
+        columnas_validas = [
+            'vendedor', 'mes', 'anio', 'presupuesto_vendedor', 'venta_total_vendedor',
+            'porcentaje_cumplimiento_personal', 'comision_mensual', 'comision_juguetes',
+            'comision_cxo', 'comision_dusa', 'comision_shumatsu', 'comision_semanal',
+            'total_comisiones', 'fecha_calculo'
+        ]
+        df_personales_db = df_personales_db[[c for c in columnas_validas if c in df_personales_db.columns]]
+        df_personales_db.to_sql('comisiones_vendedores_personales', conn, if_exists='append', index=False)
+
+    conn.commit()
+    conn.close()
+
+    return resultados, detalles_semanales, resultados_personales
+
+def calcular_comisiones_unificadas_ori(db_path: str, year: int, month: int):
     crear_tabla_presupuestos_ubicaciones_si_no_existe(db_path)
     crear_tabla_vendedores_esquema_personal_si_no_existe(db_path)
     crear_tabla_comisiones_por_vendedor_si_no_existe(db_path)
@@ -614,7 +841,7 @@ def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_p
 
         # ✅ Hoja de Validación
         df_validacion.to_excel(writer, sheet_name='Validación de Datos', index=False)
-        df_validacion_ubic.to_excel(writer, sheet_name='Ventas por Ubicación (Validación)', index=False)
+        df_validacion_ubic.to_excel(writer, sheet_name='Ventas (Validación)', index=False)
 
     print(f"✅ Reporte guardado en: {archivo_salida}")
     print(f"🔍 Total ventas mes (validación): ${total_ventas_mes:,.2f}")
@@ -622,7 +849,7 @@ def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_p
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
     YEAR = 2026
-    MONTH = 1
+    MONTH = 2
 
     print(f"🔍 Calculando comisiones UNIFICADAS para {MONTH}/{YEAR}...")
     resultados, detalles, personales = calcular_comisiones_unificadas(DB_PATH, YEAR, MONTH)
