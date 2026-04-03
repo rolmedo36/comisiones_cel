@@ -248,7 +248,8 @@ def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
         ubicacion,
         vendedor
     FROM ventas
-    WHERE ubicacion = 'Arcos-C';
+    WHERE 1=1
+        -- AND ubicacion = 'Arcos-C';
     """
     df = pd.read_sql_query(query, conn)
     conn.close()
@@ -849,7 +850,7 @@ def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_p
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
     YEAR = 2026
-    MONTH = 2
+    MONTH = 3
 
     print(f"🔍 Calculando comisiones UNIFICADAS para {MONTH}/{YEAR}...")
     resultados, detalles, personales = calcular_comisiones_unificadas(DB_PATH, YEAR, MONTH)
