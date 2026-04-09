@@ -80,7 +80,7 @@ def agrupa_marca():
 
 if __name__ == '__main__':
     # mes_ini = datetime.today().replace(day=1).strftime("%d/%m/%Y")
-    mes_ini = '01/01/2026'
+    mes_ini = '01/03/2026'
     archivo = 'comisiones.csv'
     results = []
     conn = sqlite3.connect('comisiones.db')
@@ -88,6 +88,7 @@ if __name__ == '__main__':
     qry = f"""
         SELECT
             t.tranid as transaccion,
+            t.custbody_clt_id_pos as id_pos,
             t.trandate as fecha,
             BUILTIN.DF(t.employee) as vendedor,
             BUILTIN.DF( t.entity ) as cliente,

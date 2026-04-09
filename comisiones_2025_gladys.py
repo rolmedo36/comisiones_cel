@@ -246,7 +246,8 @@ def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
         tipo_venta,
         transaccion,
         ubicacion,
-        vendedor
+        vendedor,
+        id_pos
     FROM ventas
     WHERE 1=1
         -- AND ubicacion = 'Arcos-C';
@@ -257,6 +258,8 @@ def cargar_ventas_desde_db(db_path: str, year: int, month: int) -> pd.DataFrame:
     df['cantidad'] = pd.to_numeric(df['cantidad'], errors='coerce')
     df['precio_publico'] = pd.to_numeric(df['precio_publico'], errors='coerce')
     df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
+    if 'id_pos' in df.columns:
+        df['id_pos'] = df['id_pos'].str.extract(r'-T(.*?)-D')
 
     # Filtrar solo el mes/año solicitado
     df = df[
@@ -731,29 +734,114 @@ def calcular_comisiones_unificadas_ori(db_path: str, year: int, month: int):
 
     return resultados, detalles_semanales, resultados_personales
 
-def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_path: str, year: int, month: int):
+
+def exportar_a_excel(resultados, detalles_semanales, resultados_personales, year, month, df_ventas_origen):
+    """
+    Exporta los resultados a un archivo Excel con múltiples hojas para auditoría.
+    Incluye la nueva hoja 'Detalle de Transacciones' para transparencia con el área comercial.
+    """
+    archivo_salida = f"comisiones_unificadas_{month}_{year}.xlsx"
+
+    # Convertir listas a DataFrames
+    df_resultados = pd.DataFrame(resultados)
+    df_semanal = pd.DataFrame(detalles_semanales)
+    df_personales = pd.DataFrame(resultados_personales)
+
+    # Preparar datos de validación
+    total_ventas_mes = df_ventas_origen['venta_total'].sum() if not df_ventas_origen.empty else 0
+    df_validacion_ubic = df_ventas_origen.groupby('ubicacion')['venta_total'].sum().reset_index()
+    df_validacion_ubic.columns = ['ubicacion', 'Total Ventas (Base de Datos)']
+
+    # Crear el escritor de Excel con XlsxWriter
+    with pd.ExcelWriter(archivo_salida, engine='xlsxwriter') as writer:
+
+        # 1. Hoja: Detalle de Transacciones (LA SOLICITADA POR COMERCIAL)
+        if not df_ventas_origen.empty:
+            # Ordenamos cronológicamente y por ubicación para facilitar revisión
+            df_detalle = df_ventas_origen.sort_values(['fecha', 'ubicacion', 'transaccion'])
+            df_detalle.to_excel(writer, sheet_name='Detalle de Transacciones', index=False)
+
+            # Formateo de la hoja de detalle
+            worksheet_det = writer.sheets['Detalle de Transacciones']
+            worksheet_det.freeze_panes(1, 0)  # Congelar encabezado (Corregido)
+
+            # Ajustar anchos de columna automáticamente
+            for i, col in enumerate(df_detalle.columns):
+                column_len = max(df_detalle[col].astype(str).str.len().max(), len(col)) + 2
+                worksheet_det.set_column(i, i, min(column_len, 50))  # Límite de 50 para que no sea excesivo
+
+        # 2. Hoja: Comisiones por Ubicación (Original)
+        if not df_resultados.empty:
+            df_resultados.to_excel(writer, sheet_name='Comisiones por Ubicación', index=False)
+            worksheet_res = writer.sheets['Comisiones por Ubicación']
+            worksheet_res.freeze_panes(1, 0)
+
+        # 3. Hoja: Bonos Semanales Tienda (Original)
+        if not df_semanal.empty:
+            df_semanal.to_excel(writer, sheet_name='Bonos Semanales Tienda', index=False)
+            worksheet_sem = writer.sheets['Bonos Semanales Tienda']
+            worksheet_sem.freeze_panes(1, 0)
+
+        # 4. Hoja: Esquema Personal (Original)
+        if not df_personales.empty:
+            df_personales.to_excel(writer, sheet_name='Esquema Personal', index=False)
+            worksheet_pers = writer.sheets['Esquema Personal']
+            worksheet_pers.freeze_panes(1, 0)
+
+        # 5. Hoja: Resumen por Vendedor Total (Original mejorado)
+        if not df_resultados.empty:
+            df_resumen_total = df_resultados.groupby('vendedor').agg({
+                'venta_total_vendedor': 'sum',
+                'comision_mensual': 'sum',
+                'comision_juguetes': 'sum',
+                'comision_cxo': 'sum',
+                'comision_dusa': 'sum',
+                'comision_shumatsu': 'sum',
+                'comision_semanal': 'sum',
+                'total_comisiones': 'sum'
+            }).reset_index()
+            df_resumen_total.to_excel(writer, sheet_name='Resumen por Vendedor Total', index=False)
+
+        # 6. Hoja: Resumen por Ubicación (Original)
+        if not df_resultados.empty:
+            resumen_ubic = df_resultados.groupby('ubicacion').agg({
+                'venta_total_ubicacion': 'sum',
+                'porcentaje_cumplimiento_ubicacion': 'mean',
+                'total_comisiones': 'sum'
+            }).reset_index()
+            resumen_ubic.columns = ['ubicacion', 'venta_total_ubicacion', 'porcentaje_cumplimiento_ubicacion',
+                                    'total_comisiones']
+            resumen_ubic.to_excel(writer, sheet_name='Resumen por Ubicación', index=False)
+
+        # 7. Hoja: Ventas (Validación)
+        df_validacion_ubic.to_excel(writer, sheet_name='Ventas (Validación)', index=False)
+
+    print(f"✅ Reporte generado exitosamente: {archivo_salida}")
+    print(f"📊 Total General de Ventas en Detalle: ${total_ventas_mes:,.2f}")
+
+def exportar_a_excel_09abr2026(resultados, detalles, personales, archivo_salida: str, db_path: str, year: int, month: int, df_ventas_origen):
     df_resultados = pd.DataFrame(resultados)
     df_semanal = pd.DataFrame(detalles)
     df_personal = pd.DataFrame(personales)
 
     # === Hoja de Validación de Datos ===
     conn = sqlite3.connect(db_path)
-    query = """
-    SELECT 
-        ubicacion,
-        SUM(cantidad * precio_publico) AS venta_total
-    FROM ventas
-    WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ?
-    GROUP BY ubicacion;
-    """
+    # query = """
+    #     SELECT
+    #         ubicacion,
+    #         SUM(cantidad * precio_publico) AS venta_total
+    #     FROM ventas
+    #     WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ?
+    #     GROUP BY ubicacion;
+    #     """
     # Pero como fecha es texto DD/MM/YYYY, usamos substr
     query = """
-    SELECT 
-        ubicacion,
-        SUM(cantidad * precio_publico) AS venta_total
-    FROM ventas
-    WHERE substr(fecha, 7, 4) = ? AND substr(fecha, 4, 2) = ?
-    GROUP BY ubicacion;
+        SELECT 
+            ubicacion,
+            SUM(cantidad * precio_publico) AS venta_total
+        FROM ventas
+        WHERE substr(fecha, 7, 4) = ? AND substr(fecha, 4, 2) = ?
+        GROUP BY ubicacion;
     """
     df_validacion_ubic = pd.read_sql_query(query, conn, params=(str(year), f"{month:02d}"))
     conn.close()
@@ -847,13 +935,30 @@ def exportar_a_excel(resultados, detalles, personales, archivo_salida: str, db_p
     print(f"✅ Reporte guardado en: {archivo_salida}")
     print(f"🔍 Total ventas mes (validación): ${total_ventas_mes:,.2f}")
 
+# if __name__ == "__main__":
+#     DB_PATH = "comisiones.db"
+#     YEAR = 2026
+#     MONTH = 3
+#
+#     print(f"🔍 Calculando comisiones UNIFICADAS para {MONTH}/{YEAR}...")
+#
+#     ventas_df = cargar_ventas_desde_db(DB_PATH, YEAR, MONTH)
+#
+#     resultados, detalles, personales = calcular_comisiones_unificadas(DB_PATH, YEAR, MONTH)
+#
+#     archivo_excel = f"comisiones_unificadas_{MONTH}_{YEAR}.xlsx"
+#     exportar_a_excel(resultados, detalles, personales, archivo_excel, DB_PATH, YEAR, MONTH, ventas_df)
+
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
     YEAR = 2026
-    MONTH = 3
+    MONTH = 3 # El mes que estés calculando
 
-    print(f"🔍 Calculando comisiones UNIFICADAS para {MONTH}/{YEAR}...")
+    # 1. Cargar el dataframe de ventas original
+    ventas_df = cargar_ventas_desde_db(DB_PATH, YEAR, MONTH)
+
+    # 2. Calcular comisiones
     resultados, detalles, personales = calcular_comisiones_unificadas(DB_PATH, YEAR, MONTH)
 
-    archivo_excel = f"comisiones_unificadas_{MONTH}_{YEAR}.xlsx"
-    exportar_a_excel(resultados, detalles, personales, archivo_excel, DB_PATH, YEAR, MONTH)
+    # 3. Exportar pasando el ventas_df para la hoja de auditoría
+    exportar_a_excel(resultados, detalles, personales, YEAR, MONTH, ventas_df)
