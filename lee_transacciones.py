@@ -80,7 +80,7 @@ def agrupa_marca():
 
 if __name__ == '__main__':
     # mes_ini = datetime.today().replace(day=1).strftime("%d/%m/%Y")
-    mes_ini = '01/03/2026'
+    mes_ini = '01/05/2026'
     archivo = 'comisiones.csv'
     results = []
     conn = sqlite3.connect('comisiones.db')

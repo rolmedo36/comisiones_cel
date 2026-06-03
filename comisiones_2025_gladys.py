@@ -413,10 +413,25 @@ def calcular_comisiones_unificadas(db_path: str, year: int, month: int):
                            porcentajes.get('comision_juguetes', 0.01) if esquema_personal else 0.01)
         com_cxo = grupo[grupo['marca'].astype(str).str.startswith('CXO', na=False)]['venta_total'].sum() * (
             porcentajes.get('comision_cxo', 0.06) if esquema_personal else 0.06)
-        com_dusa = grupo[(grupo['marca'] == 'DUSA') & (grupo['id_articulo'] != '5356')]['venta_total'].sum() * (
-            porcentajes.get('comision_dusa', 0.02) if esquema_personal else 0.02)
-        com_shumatsu = grupo[grupo['id_articulo'] == '5356']['venta_total'].sum() * (
-            porcentajes.get('comision_shumatsu', 0.06) if esquema_personal else 0.06)
+        # com_dusa = grupo[(grupo['marca'] == 'DUSA') & (grupo['id_articulo'] != '5356')]['venta_total'].sum() * (
+        #     porcentajes.get('comision_dusa', 0.02) if esquema_personal else 0.02)
+        # com_shumatsu = grupo[grupo['id_articulo'] == '5356']['venta_total'].sum() * (
+        #     porcentajes.get('comision_shumatsu', 0.06) if esquema_personal else 0.06)
+        # Productos que ahora tienen comisión de pastilla (6% o según esquema)
+        PRODUCTOS_PASTILLA = ['5356', '4445', '1165', '1164']
+
+        # Comisión para DUSA: marca = 'DUSA' y NO es un producto de pastilla
+        com_dusa = grupo[
+            (grupo['marca'] == 'DUSA') &
+            (~grupo['id_articulo'].isin(PRODUCTOS_PASTILLA))
+            ]
+        com_dusa = com_dusa['venta_total'].sum() * (porcentajes['comision_dusa'] if esquema_personal else 0.02)
+
+        # Comisión para pastillas (incluye los 4 productos)
+        com_shumatsu = grupo[grupo['id_articulo'].isin(PRODUCTOS_PASTILLA)]
+        com_shumatsu = com_shumatsu['venta_total'].sum() * (
+            porcentajes['comision_shumatsu'] if esquema_personal else 0.06)
+
         com_mensual = venta_total_v * (
             porcentajes.get('comision_mensual', porc_com_mensual) if esquema_personal else porc_com_mensual)
 
@@ -578,14 +593,29 @@ def calcular_comisiones_unificadas_ori(db_path: str, year: int, month: int):
         cxo_ventas = grupo[grupo['marca'].astype(str).str.startswith('CXO', na=False)]
         comision_cxo = cxo_ventas['venta_total'].sum() * (porcentajes['comision_cxo'] if esquema_personal else 0.06)
 
+        # Productos que ahora tienen comisión de pastilla (6% o según esquema)
+        PRODUCTOS_PASTILLA = ['5356', '4445', '1165', '1164'] # Pastilla, Rigidex, Shot Hombre, Shot Mujer
+
+        # Comisión para DUSA: marca = 'DUSA' y NO es un producto de pastilla
         dusa = grupo[
             (grupo['marca'] == 'DUSA') &
-            (grupo['id_articulo'] != '5356')
-        ]
+            (~grupo['id_articulo'].isin(PRODUCTOS_PASTILLA))
+            ]
         comision_dusa = dusa['venta_total'].sum() * (porcentajes['comision_dusa'] if esquema_personal else 0.02)
 
-        shumatsu = grupo[grupo['id_articulo'] == '5356']
-        comision_shumatsu = shumatsu['venta_total'].sum() * (porcentajes['comision_shumatsu'] if esquema_personal else 0.06)
+        # Comisión para pastillas (incluye los 4 productos)
+        shumatsu = grupo[grupo['id_articulo'].isin(PRODUCTOS_PASTILLA)]
+        comision_shumatsu = shumatsu['venta_total'].sum() * (
+            porcentajes['comision_shumatsu'] if esquema_personal else 0.06)
+
+        # dusa = grupo[
+        #     (grupo['marca'] == 'DUSA') &
+        #     (grupo['id_articulo'] != '5356')
+        # ]
+        # comision_dusa = dusa['venta_total'].sum() * (porcentajes['comision_dusa'] if esquema_personal else 0.02)
+        #
+        # shumatsu = grupo[grupo['id_articulo'] == '5356']
+        # comision_shumatsu = shumatsu['venta_total'].sum() * (porcentajes['comision_shumatsu'] if esquema_personal else 0.06)
 
         # === Comisión mensual ===
         if esquema_personal:
@@ -952,7 +982,7 @@ def exportar_a_excel_09abr2026(resultados, detalles, personales, archivo_salida:
 if __name__ == "__main__":
     DB_PATH = "comisiones.db"
     YEAR = 2026
-    MONTH = 3 # El mes que estés calculando
+    MONTH = 5 # El mes que estés calculando
 
     # 1. Cargar el dataframe de ventas original
     ventas_df = cargar_ventas_desde_db(DB_PATH, YEAR, MONTH)
