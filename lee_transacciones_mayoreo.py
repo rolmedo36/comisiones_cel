@@ -53,63 +53,17 @@ def fetch_all_suiteql(client, query, page_size=1000):
     return all_items
 
 
-def send_email_with_attachment(re):
-    sender_email = "soporte@celesterra.com.mx"  # Replace with your email
-    sender_password = "mntxxfgkfqjmgpfz"  # Replace with your email password (or app password if using Gmail)
-    # receiver_email = "rodrigo@celesterra.com.mx"  # Replace with the recipient's email
-    receiver_email = re
-    subject = "Ventas Reporte"
-    body = "Adjunto reporte de ventas.\n\nSaludos."
-
-    # Path to the Excel file
-    file_path = "ventas_reporte_with_formula.xlsx"
-
-    # Create the email message
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    # Add body as MIMEText to handle the email body properly
-    msg.attach(MIMEText(body, 'plain'))
-
-    # Attach the Excel file
-    part = MIMEBase('application', 'octet-stream')
-    try:
-        with open(file_path, "rb") as attachment:
-            part.set_payload(attachment.read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
-        msg.attach(part)
-    except FileNotFoundError:
-        print(f"Error: The file {file_path} was not found.")
-        return
-    # Connect to the Microsoft 365 SMTP server (use correct server and port)
-    try:
-        # Microsoft 365 SMTP server address: smtp.office365.com, port 587 (TLS)
-        server = smtplib.SMTP('smtp.office365.com', 587)
-        server.starttls()  # Upgrade to secure connection
-        server.login(sender_email, sender_password)
-
-        # Send the email
-        text = msg.as_string()  # Convert the message to string
-        server.sendmail(sender_email, receiver_email, text)
-        print(f"Email sent successfully to {receiver_email}")
-    except Exception as e:
-        print(f"Error sending email: {e}")
-    finally:
-        server.quit()
-
 if __name__ == '__main__':
     # mes_ini = datetime.today().replace(day=1).strftime("%d/%m/%Y")
-    mes_ini = '01/12/2025'
-    archivo = 'comisiones_kainu.csv'
+    mes_ini = '01/07/2026'
+    archivo = 'comisiones.csv'
     results = []
-    conn = sqlite3.connect('comisiones_kainu.db')
+    conn = sqlite3.connect('comisiones.db')
 
     qry = f"""
         SELECT
-            i.itemtype as tipo,
             t.tranid as transaccion,
+            t.custbody_clt_id_pos as id_pos,
             t.trandate as fecha,
             BUILTIN.DF(t.employee) as vendedor,
             BUILTIN.DF( t.entity ) as cliente,
@@ -122,24 +76,27 @@ if __name__ == '__main__':
             BUILTIN.DF(i.custitem23) as familia_comercial,
 
             ABS(tl.quantity) as cantidad,
-            ( SELECT TOP 1 NVL(price,'0') FROM itemPrice ip WHERE ip.item = tl.item AND ip.priceLevelName = 'PRECIO PUBLICO') as precio_publico,
+            tl.rate,
             tl.custcol_ctr_promo_discount as promo_descuento,
             tl.custcol_ctr_promo_id as promo_id
+
         FROM 
             transaction t,
             transactionline tl,
             item i
         WHERE 1=1
-            AND t.type = 'CashSale'
-            --AND t.trandate >= '{mes_ini}'
-            AND t.trandate >= '01/12/2025'
+            AND t.type = 'CustInvc'
+            AND t.trandate >= '{mes_ini}'
+            -- AND t.trandate = '31/10/2025'
             AND tl.transaction = t.id
             AND tl.taxLine = 'F'
             AND tl.mainLine = 'F'
             AND tl.netAmount <> 0
             AND tl.quantity <> 0
-            AND tl.location in (486, 487) -- SOLO MASCOTA 486 y 487
+            AND tl.location in (425, 494) -- Solo mayoreo y whatsapp
+            -- AND tl.location = 282
             AND i.id = tl.item
+            AND t.entity <> 1981 -- NO RAPPI
         ORDER BY t.trandate, t.id
 
     """
@@ -157,16 +114,8 @@ if __name__ == '__main__':
     data = fetch_all_suiteql(client, qry)
 
     df = pd.DataFrame(data)
-    df.loc[df['id_articulo'] == '23892', 'vendedor'] = 'CRISTOBAL OROZCO ALVAREZ'
     df.to_csv(archivo, index=False, encoding="utf-8-sig")
 
     df = df.drop(columns='links')
-    df.to_sql('ventas_kainu', conn, if_exists='replace', index=False)
-
-    # genera_reporte()
-
-    # envia correo
-    # for r in ['soporte@celesterra.com.mx']:
-    # for r in ['lider@erectus.com.mx', 'zenter@erectus.com.mx', 'asistente.direccion@celesterra.com.mx']:
-    #    send_email_with_attachment(r)
+    df.to_sql('ventas_mayoreo', conn, if_exists='replace', index=False)
 

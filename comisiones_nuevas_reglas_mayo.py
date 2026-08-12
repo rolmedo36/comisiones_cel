@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 # 1. CONFIGURACIÓN DE REGLAS DE NEGOCIO
 # ==============================================================================
 CONFIG_COMISIONES = {
-    "mes_a_calcular": 5,  # Mes de Mayo
+    "mes_a_calcular": 7,
     "grupo_pastillas_ids": [5356, 4445, 1165, 1164],
     "marcas_premium": ["CXO", "CXO: B"],
     "marca_dusa": "DUSA",
@@ -54,7 +54,7 @@ def calcular_porcentaje_fila(id_art, marca):
 # ==============================================================================
 # 2. EXTRACCIÓN Y PROCESAMIENTO GENERAL (CORREGIDO)
 # ==============================================================================
-def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Comisiones_Mayo_2026.xlsx"):
+def generar_matriz_pivot(path_db="comisiones.db", output_excel="ERECTUS_Comisiones_2026.xlsx"):
     conn = sqlite3.connect(path_db)
     mes_formateado = f"{CONFIG_COMISIONES['mes_a_calcular']:02d}"
 
@@ -91,15 +91,36 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
                                                        axis=1)
     df_ventas['total_comision'] = df_ventas['monto_venta'] * df_ventas['porcentaje_comision']
 
-    # Agrupación compacta para la Matriz Resumen
-    df_resumen = df_ventas.groupby(['vendedor', 'tipo_comision']).agg(
+    # # Agrupación compacta para la Matriz Resumen
+    # df_resumen = df_ventas.groupby(['vendedor', 'tipo_comision']).agg(
+    #     VENTA=('monto_venta', 'sum'),
+    #     COMISION=('total_comision', 'sum')
+    # ).reset_index()
+    #
+    # # Al haber rellenado los nulos con .fillna(), sorted() ya puede ordenar alfabéticamente sin problemas
+    # vendedores = sorted(df_ventas['vendedor'].unique())
+    # tipos_comision = sorted(df_resumen['tipo_comision'].unique())
+    #
+
+    # Agrega ubicacion
+    df_resumen = df_ventas.groupby(['vendedor', 'ubicacion', 'tipo_comision']).agg(
         VENTA=('monto_venta', 'sum'),
         COMISION=('total_comision', 'sum')
     ).reset_index()
 
-    # Al haber rellenado los nulos con .fillna(), sorted() ya puede ordenar alfabéticamente sin problemas
+    # NO se toca: sigue alimentando las hojas de detalle (una por vendedor)
     vendedores = sorted(df_ventas['vendedor'].unique())
+
+    # NUEVO: combinaciones únicas vendedor + tienda, para las filas de la matriz
+    pares_vend_ubic = (
+        df_ventas[['vendedor', 'ubicacion']]
+        .drop_duplicates()
+        .sort_values(['vendedor', 'ubicacion'])
+        .values.tolist()
+    )
+
     tipos_comision = sorted(df_resumen['tipo_comision'].unique())
+
     num_cats = len(tipos_comision)
 
     # Inicializar libro de openpyxl
@@ -133,11 +154,12 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
     ws["A2"] = f"PERIODO DE ENTRADA Y PAGO: MES {mes_formateado} / 2026"
     ws["A2"].font = FONT_SUBTITLE
 
-    col_ventas_inicio = 2
+    col_ventas_inicio = 3
     col_comisiones_inicio = col_ventas_inicio + num_cats
     col_total_pagar = col_comisiones_inicio + num_cats
 
     ws.cell(row=4, column=1, value="VENDEDOR")
+    ws.cell(row=4, column=2, value="UBICACION")
     ws.cell(row=4, column=col_ventas_inicio, value="VENTAS BRUTAS ACUMULADAS")
     ws.cell(row=4, column=col_comisiones_inicio, value="COMISIONES NETAS A PAGAR")
     ws.cell(row=4, column=col_total_pagar, value="TOTAL A PAGAR")
@@ -154,24 +176,29 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
             if r == 4:
                 cell.fill = HEADER_FILL
             else:
-                cell.fill = HEADER_FILL if c in [1, col_total_pagar] else SUBHEADER_FILL
+                cell.fill = HEADER_FILL if c in [1, 2, col_total_pagar] else SUBHEADER_FILL
 
     ws.merge_cells(start_row=4, start_column=1, end_row=5, end_column=1)
+    ws.merge_cells(start_row=4, start_column=2, end_row=5, end_column=2)
     ws.merge_cells(start_row=4, start_column=col_ventas_inicio, end_row=4, end_column=col_comisiones_inicio - 1)
     ws.merge_cells(start_row=4, start_column=col_comisiones_inicio, end_row=4, end_column=col_total_pagar - 1)
     ws.merge_cells(start_row=4, start_column=col_total_pagar, end_row=5, end_column=col_total_pagar)
 
     current_row = 6
-    for idx, v in enumerate(vendedores):
+    for idx, (v, u) in enumerate(pares_vend_ubic):
         ws.cell(row=current_row, column=1, value=v).alignment = Alignment(horizontal="left", vertical="center")
+        ws.cell(row=current_row, column=2, value=u).alignment = Alignment(horizontal="left", vertical="center")
+
+        # Filtro base: ahora considera vendedor Y ubicación
+        mask_base = (df_resumen['vendedor'] == v) & (df_resumen['ubicacion'] == u)
 
         for i, t in enumerate(tipos_comision):
-            subset = df_resumen[(df_resumen['vendedor'] == v) & (df_resumen['tipo_comision'] == t)]
+            subset = df_resumen[mask_base & (df_resumen['tipo_comision'] == t)]
             val_venta = subset['VENTA'].values[0] if not subset.empty else 0.0
             ws.cell(row=current_row, column=col_ventas_inicio + i, value=val_venta)
 
         for i, t in enumerate(tipos_comision):
-            subset = df_resumen[(df_resumen['vendedor'] == v) & (df_resumen['tipo_comision'] == t)]
+            subset = df_resumen[mask_base & (df_resumen['tipo_comision'] == t)]
             val_com = subset['COMISION'].values[0] if not subset.empty else 0.0
             ws.cell(row=current_row, column=col_comisiones_inicio + i, value=val_com)
 
@@ -186,7 +213,7 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
             cell.border = THIN_BORDER
             if idx % 2 == 1:
                 cell.fill = ZEBRA_FILL
-            if c >= 2:
+            if c >= col_ventas_inicio:
                 cell.number_format = '$#,##0.00'
                 cell.alignment = Alignment(horizontal="right", vertical="center")
         current_row += 1
@@ -194,7 +221,7 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
     ws.cell(row=current_row, column=1, value="TOTALES").font = FONT_TOTAL
     ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="left", vertical="center")
 
-    for c in range(2, col_total_pagar + 1):
+    for c in range(col_ventas_inicio, col_total_pagar + 1):
         col_let = get_column_letter(c)
         ws.cell(row=current_row, column=c, value=f"=SUM({col_let}6:{col_let}{current_row - 1})")
 
@@ -203,13 +230,15 @@ def generar_matriz_pivot(path_db="comisiones.db", output_excel="Matriz_Pivot_Com
         cell.font = FONT_TOTAL
         cell.fill = TOTAL_FILL
         cell.border = TOTAL_BORDER
-        if c >= 2:
+        if c >= col_ventas_inicio:
             cell.number_format = '$#,##0.00'
             cell.alignment = Alignment(horizontal="right", vertical="center")
 
     for col in ws.columns:
         col_letter = get_column_letter(col[0].column)
         ws.column_dimensions[col_letter].width = 24
+    ws.column_dimensions['A'].width = 28   # VENDEDOR
+    ws.column_dimensions['B'].width = 30   # UBICACION
     ws.freeze_panes = "A6"
 
     # ==============================================================================
